@@ -1,0 +1,7 @@
+name = "Mongolia"
+uuid = "9623678c-464f-4adc-86cc-aaa577de8da5"
+authors = ["Mark Mendel <mmendel@meinergy.com> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.8"
