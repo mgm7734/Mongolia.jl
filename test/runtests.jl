@@ -1,6 +1,7 @@
 using Mongolia
 using Test
+import Mongoc as M
 
 @testset "Mongolia.jl" begin
-    # Write your tests here.
+    include("bson_tests.jl")
 end
