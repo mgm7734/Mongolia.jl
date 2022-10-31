@@ -1,5 +1,4 @@
-#using DataStructures
-import Mongoc as M
+using DataStructures
 
 const Key = Union{AbstractString,Symbol}
 
@@ -12,9 +11,9 @@ Construct a BSON object using keyword arguments or pairs to reduce quote clutter
 # Examples
 
 ```jldoctest
-julia> bson("metadata.pt" => "xyz", :project => +:in => ["proj1", "proj2"])
+julia> bson(:metadata!pt => r"^mei.*1$", :project => +:in => ["proj1", "proj2"])
 Mongoc.BSON with 2 entries:
-  "metadata.pt" => "xyz"
+  "metadata.pt" => Dict{Any, Any}("\$regex"=>"^mei.*1\$")
   "project"     => Dict{Any, Any}("\$in"=>Any["proj1", "proj2"])
 
 julia> bson([
@@ -35,6 +34,7 @@ bson(ps::Pair...) = M.BSON((Pair(bson(k), _bson(v)) for (k, v) in ps)...)
 bson(t::Tuple) = bson(t...)
 bson(d::AbstractDict) = bson(pairs(d)...)
 bson(s::Symbol) = replace(string(s), "!!" => "!", "!" => ".")
+bson(re::Regex) = bson(+:regex => re.pattern)
 bson(x) = x
 
 # Mongoc.aggregate should accept Array{BSON} but doesn't
@@ -75,41 +75,46 @@ bsonify(io::IO, x) = print(io, x)
 =#
 
 """
+Construct lookup and optional unwind stages for a pipeline.
+
+The defaults work for a to-many relation where the child collection's foreign key is the parent collection name.  
+"""
+function lookup(from, foreignField; localField=:_id, as=from, unwind=true, skipmissing=false)
+    result = Pair[
+        +:lookup => (:from => from, :foreignField => foreignField, :localField => localField, :as => as)
+    ]
+    unwind && push!(result, (+:unwind => (:path => "\$$as", :preserveNullAndEmptyArrays => !skipmissing)))
+    result
+end
+
+"""
     tomany(parent, children...)
 
-Pipeline helper TODO
+Construct a pipeline traversing a chain of to-many relations.
 
 # Examples
 
-
+```jldoctest test
+julia> tomany(:device, :devconfig, :config=>:trigger)
+```
+[...]
 """
-function tomany(parent, children...; unwind=true)
+function tomany(parent, children...; unwind=true, skipmissing=false)
     result = []
     parent = string(parent)
     if startswith(parent, '$')
         parent = parent[2:end]
-        pk = "$parent._id"
+        localField = "$parent._id"
     else
-        pk = "_id"
+        localField = "_id"
     end
     for c in children
-        (fk, child) = c isa Union{Pair,Tuple} ? string.(Tuple(c)) : (parent, string(c))
-        push!(result, (
-          +:lookup => (:from => child, :localField => pk, :foreignField => fk, :as => child)))
-        unwind && push!(result, (+:unwind => "\$$child"))
+        (foreignField, child) = c isa Union{Pair,Tuple} ? string.(Tuple(c)) : (parent, string(c))
+        push!(result, lookup(child, foreignField; localField, as=child, unwind, skipmissing)...)
         parent = child
-        pk = "$(parent)._id"
+        localField = "$(parent)._id"
     end
     result
-end
-
-function many(parent::String, child::String; as=child, fk=parent, pk=:_id, unwind=true)
-    result = []
-    push!(result,
-        +:lookup => (:from => child, :localField => string(pk), :foreignField => string(fk), :as => string(as)) 
-    )
-    unwind && push!(result, 
-        +:unwind => "\$$as")
 end
 
 """
@@ -121,14 +126,14 @@ o
 # Examples
 
 ```julia
-pilrfind(db.participant, toparent(:project))
-pilrfind(db.trigger. topparent(:configuration => :instrumentConfig))
+mfind(db.participant, toparent(:project))
+mfind(db.trigger. topparent(:configuration => :instrumentConfig))
 ```
 """
 function toparent(fk...; skipmissing=false)
     result = []
     for item in fk
-        (localField, from) = 
+        (localField, from) =
             if item isa Pair
                 string.(Tuple(item))
             else
@@ -140,10 +145,10 @@ function toparent(fk...; skipmissing=false)
                     (item, parts[1])
                 end
             end
-        as = localField * "_"# overwrite it!
-        push!(result, 
+        as = localField
+        push!(result,
             +:lookup => (:from => from, :localField => localField, :foreignField => "_id", :as => as),
-            +:unwind => (:path => "\$$as", :preserveNullAndEmptyArrays => !skipmissing) )
+            +:unwind => (:path => "\$$as", :preserveNullAndEmptyArrays => !skipmissing))
     end
     result
 end 

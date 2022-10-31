@@ -38,8 +38,7 @@ beq(a,b) = beq(M.BSON(a), M.BSON(b))
     end
     @test M.as_json(bson(code=:pt1, project=1234)) == M.as_json(M.BSON("""{ "code": "pt1", "project": 1234 }"""))
 
-    @testset "tomany" begin
-        
+    @testset "regex" begin
+      @test beq(bson(:a => r"\nx$"), bson(:a => +:regex => "\\nx\$"))
     end
-
 end
